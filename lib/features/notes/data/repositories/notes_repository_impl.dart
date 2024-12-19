@@ -35,25 +35,38 @@ class NotesRepositoryImpl implements NotesRepository {
         'user_id': user.id,
       };
 
-      final response = await _supabaseClient
-          .from('notes')
-          .insert(noteData)
-          .select()
-          .single();
+      // Ensure user_id is always set
+      if (noteData['user_id'] == null) {
+        log('Error: User ID is required for note creation');
+        return Left(ServerFailure('User not authenticated'));
+      }
+
+      final response =
+          await _supabaseClient.from('notes').insert(noteData).select();
+
+      // Remove unnecessary null checks
       final createdNote = NoteModel.fromJson(response);
 
       if (createdNote.reminderTime != null) {
-        await ReminderService.scheduleNotification(
-          id: createdNote.id,
-          title: 'Note Reminder',
-          body: createdNote.description,
-          scheduledTime: createdNote.reminderTime!,
-        );
+        try {
+          await ReminderService.scheduleNotification(
+            id: createdNote.id,
+            title:
+                'Note Reminder: ${createdNote.description ?? 'Untitled Note'}',
+            body: createdNote.description ?? 'No description',
+            scheduledTime: createdNote.reminderTime!,
+          );
+          log('Notification scheduled successfully for note: ${createdNote.id}');
+        } catch (e) {
+          log('CreateNote Error (scheduling notification): $e',
+              error: e, stackTrace: StackTrace.current);
+        }
       }
 
       await _notesBox.put(createdNote.id, createdNote);
+
       return Right(createdNote);
-    } catch (e) {
+    } on PostgrestException catch (e) {
       log('CreateNote Error: $e');
       return Left(ServerFailure(e.toString()));
     }
@@ -102,9 +115,6 @@ class NotesRepositoryImpl implements NotesRepository {
         await _deletedNotesBox.put(note.id, note);
         log('DeleteAllNotes: Cached deleted note ${note.id}');
       }
-
-      // Cancel all reminders
-      await ReminderService.cancelAllNotifications();
 
       return const Right(true);
     } catch (e) {
@@ -161,8 +171,6 @@ class NotesRepositoryImpl implements NotesRepository {
       log('DeleteNote: Updating local cache');
       await _notesBox.delete(noteId);
       await _deletedNotesBox.put(noteId, updatedNote);
-
-      await ReminderService.cancelNotification(noteId);
 
       return const Right(true);
     } catch (e) {
@@ -351,41 +359,47 @@ class NotesRepositoryImpl implements NotesRepository {
   }
 
   @override
-  Future<Either<Failure, NoteModel>> updateNote(NoteModel note) async {
+  Future<Either<Failure, NoteModel>> updateNote(NoteModel updatedNote) async {
     try {
-      final user = _supabaseClient.auth.currentUser;
-      if (user == null) {
-        return Left(ServerFailure('User not authenticated'));
-      }
+      // Log the note being updated
+      log('Updating note: ${updatedNote.id}, Reminder Time: ${updatedNote.reminderTime}');
 
+      // Perform Supabase update
       final response = await _supabaseClient
           .from('notes')
-          .update(note.toJson())
-          .eq('id', note.id)
-          .eq('user_id', user.id)
+          .update(updatedNote.toJson())
+          .eq('id', updatedNote.id)
           .select()
           .single();
 
-      final updatedNote = NoteModel.fromJson(response);
+      final updatedNoteFromResponse = NoteModel.fromJson(response);
 
-      if (updatedNote.reminderTime != null) {
-        await ReminderService.cancelNotification(updatedNote.id);
-        await ReminderService.scheduleNotification(
-          id: updatedNote.id,
-          title: 'Note Reminder',
-          body: updatedNote.description,
-          scheduledTime: updatedNote.reminderTime!,
-        );
+      // Handle reminder scheduling
+      if (updatedNoteFromResponse.reminderTime != null) {
+        try {
+          log('Attempting to schedule notification for note: ${updatedNoteFromResponse.id}');
+          await ReminderService.scheduleNotification(
+            id: updatedNoteFromResponse.id,
+            title: 'Note Reminder',
+            body: updatedNoteFromResponse.description ?? 'You have a reminder',
+            scheduledTime: updatedNoteFromResponse.reminderTime!,
+          );
+          log('Notification scheduled successfully for note: ${updatedNoteFromResponse.id}');
+        } catch (scheduleError) {
+          log('Error scheduling notification: $scheduleError');
+          // Optionally, you might want to handle this error more specifically
+        }
       } else {
-        await ReminderService.cancelNotification(updatedNote.id);
+        log('No reminder time set for note: ${updatedNoteFromResponse.id}');
       }
 
-      await _notesBox.put(updatedNote.id, updatedNote);
+      // Update local Hive storage
+      await _notesBox.put(updatedNoteFromResponse.id, updatedNoteFromResponse);
 
-      return Right(updatedNote);
+      return Right(updatedNoteFromResponse);
     } catch (e) {
       log('UpdateNote Error: $e');
-      return Left(ServerFailure(e.toString()));
+      return Left(ServerFailure('Failed to update note: $e'));
     }
   }
 }

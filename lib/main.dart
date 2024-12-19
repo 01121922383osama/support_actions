@@ -25,14 +25,25 @@ void main() async {
 
   // Initialize Notification Service
   await ReminderService.init();
+  // Initialize Local Notifications
+  await ReminderService.initializeLocalNotifications();
+
   await ReminderService.startListeningNotificationEvents();
 
-  // Schedule a sample notification (optional)
+  // Register web background service if on web platform
+  if (kIsWeb) {
+    await ReminderService.registerBackgroundService();
+  } else {
+    await ReminderService.startListeningNotificationEvents();
+  }
+
+  // Initialize Notification Service
   await ReminderService.scheduleNotification(
-    id: 'sample_note',
-    title: 'Welcome to Notes App',
-    body: 'Start creating and managing your notes!',
-    scheduledTime: DateTime.now().add(Duration(seconds: 10)),
+    id: 'test',
+    title: 'Test Notification',
+    body: 'This is a test notification',
+    // add this time 12/19/2024 at 4:42 pm
+    scheduledTime: DateTime(2024, 12, 19, 16, 45, 0),
   );
 
   // Initialize Supabase
@@ -78,47 +89,51 @@ class MyApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return MultiBlocProvider(
+    return MultiRepositoryProvider(
       providers: [
-        BlocProvider<ThemeBloc>(
-          create: (context) => ThemeBloc(),
-        ),
-        BlocProvider<AuthBloc>(
-          create: (context) => AuthBloc(
-            supabase: Supabase.instance.client,
-          )..add(CheckAuthStatus()),
-        ),
-        BlocProvider<NotesBloc>(
-          create: (context) => NotesBloc(
-            repository: notesRepository,
-          )..add(LoadNotes()),
-        ),
         RepositoryProvider<NotesRepository>.value(value: notesRepository),
       ],
-      child: BlocBuilder<ThemeBloc, ThemeState>(
-        builder: (context, themeState) {
-          return DynamicColorBuilder(
-            builder: (ColorScheme? lightDynamic, ColorScheme? darkDynamic) {
-              return MaterialApp(
-                debugShowCheckedModeBanner: false,
-                title: 'Support Notes',
-                themeMode: themeState.themeMode,
-                theme: AppTheme.lightTheme(lightDynamic),
-                darkTheme: AppTheme.darkTheme(darkDynamic),
-                builder: (context, child) => ResponsiveBreakpoints.builder(
-                  child: child!,
-                  breakpoints: [
-                    const Breakpoint(start: 0, end: 450, name: MOBILE),
-                    const Breakpoint(start: 451, end: 800, name: TABLET),
-                    const Breakpoint(
-                        start: 801, end: double.infinity, name: DESKTOP),
-                  ],
-                ),
-                home: const SplashScreen(),
-              );
-            },
-          );
-        },
+      child: MultiBlocProvider(
+        providers: [
+          BlocProvider<ThemeBloc>(
+            create: (context) => ThemeBloc(),
+          ),
+          BlocProvider<AuthBloc>(
+            create: (context) => AuthBloc(
+              supabase: Supabase.instance.client,
+            )..add(CheckAuthStatus()),
+          ),
+          BlocProvider<NotesBloc>(
+            create: (context) => NotesBloc(
+              repository: notesRepository,
+            )..add(LoadNotes()),
+          ),
+        ],
+        child: BlocBuilder<ThemeBloc, ThemeState>(
+          builder: (context, themeState) {
+            return DynamicColorBuilder(
+              builder: (ColorScheme? lightDynamic, ColorScheme? darkDynamic) {
+                return MaterialApp(
+                  debugShowCheckedModeBanner: false,
+                  title: 'Support Notes',
+                  themeMode: themeState.themeMode,
+                  theme: AppTheme.lightTheme(lightDynamic),
+                  darkTheme: AppTheme.darkTheme(darkDynamic),
+                  builder: (context, child) => ResponsiveBreakpoints.builder(
+                    child: child!,
+                    breakpoints: [
+                      const Breakpoint(start: 0, end: 450, name: MOBILE),
+                      const Breakpoint(start: 451, end: 800, name: TABLET),
+                      const Breakpoint(
+                          start: 801, end: double.infinity, name: DESKTOP),
+                    ],
+                  ),
+                  home: const SplashScreen(),
+                );
+              },
+            );
+          },
+        ),
       ),
     );
   }
