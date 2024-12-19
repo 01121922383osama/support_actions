@@ -52,8 +52,8 @@ class NotesRepositoryImpl implements NotesRepository {
           await ReminderService.scheduleNotification(
             id: createdNote.id,
             title:
-                'Note Reminder: ${createdNote.description ?? 'Untitled Note'}',
-            body: createdNote.description ?? 'No description',
+                'Note Reminder: ${createdNote.teacherName} ${createdNote.studentName}',
+            body: createdNote.description,
             scheduledTime: createdNote.reminderTime!,
           );
           log('Notification scheduled successfully for note: ${createdNote.id}');

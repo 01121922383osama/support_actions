@@ -126,7 +126,9 @@ class HomePage extends StatelessWidget {
               ),
             );
           }
-          return const Center(child: Text('Something went wrong'));
+          return const Center(
+            child: Text('Something went wrong'),
+          );
         },
       ),
       floatingActionButton: FloatingActionButton.extended(

@@ -42,8 +42,8 @@ void main() async {
     id: 'test',
     title: 'Test Notification',
     body: 'This is a test notification',
-    // add this time 12/19/2024 at 4:42 pm
-    scheduledTime: DateTime(2024, 12, 19, 16, 45, 0),
+    // add this time 12/19/2024 at 5:46 pm
+    scheduledTime: DateTime(2024, 12, 19, 17, 47, 0),
   );
 
   // Initialize Supabase
