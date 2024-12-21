@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
+import '../../../features/auth/presentation/bloc/auth_bloc.dart';
+import '../../../features/auth/presentation/pages/login_page.dart';
 import '../theme/theme_bloc.dart';
 import '../widgets/animated_app_bar.dart';
 
@@ -120,6 +122,54 @@ class SettingsPage extends StatelessWidget {
               ),
             ],
           ),
+          const SizedBox(height: 16),
+          _buildSection(
+            context,
+            title: 'Account',
+            icon: Icons.account_circle_outlined,
+            children: [
+              _buildSettingTile(
+                context,
+                title: 'Logout',
+                subtitle: 'Sign out of your account',
+                trailing: IconButton(
+                  icon: const Icon(Icons.logout),
+                  onPressed: () {
+                    showDialog(
+                      context: context,
+                      builder: (BuildContext dialogContext) {
+                        return AlertDialog(
+                          title: const Text('Logout'),
+                          content:
+                              const Text('Are you sure you want to log out?'),
+                          actions: [
+                            TextButton(
+                              child: const Text('Cancel'),
+                              onPressed: () {
+                                Navigator.of(dialogContext).pop();
+                              },
+                            ),
+                            TextButton(
+                              child: const Text('Logout'),
+                              onPressed: () {
+                                context.read<AuthBloc>().add(LogoutRequested());
+                                Navigator.of(context).pushAndRemoveUntil(
+                                  MaterialPageRoute(
+                                    builder: (_) => const LoginPage(),
+                                  ),
+                                  (route) => false,
+                                );
+                              },
+                            ),
+                          ],
+                        );
+                      },
+                    );
+                  },
+                ),
+              ),
+            ],
+          ),
         ]
             .animate(interval: 100.ms)
             .fadeIn(duration: 300.ms)
@@ -165,6 +215,20 @@ class SettingsPage extends StatelessWidget {
     );
   }
 
+  Widget _buildSettingTile(
+    BuildContext context, {
+    required String title,
+    String? subtitle,
+    Widget? trailing,
+  }) {
+    return ListTile(
+      contentPadding: EdgeInsets.zero,
+      title: Text(title),
+      subtitle: subtitle != null ? Text(subtitle) : null,
+      trailing: trailing,
+    );
+  }
+
   Widget _buildThemeSelector(BuildContext context) {
     return BlocBuilder<ThemeBloc, ThemeState>(
       builder: (context, state) {
@@ -196,28 +260,12 @@ class SettingsPage extends StatelessWidget {
               ],
               selected: {state.themeMode},
               onSelectionChanged: (Set<ThemeMode> selection) {
-                context
-                    .read<ThemeBloc>()
-                    .add(ThemeChanged(selection.first));
+                context.read<ThemeBloc>().add(ThemeChanged(selection.first));
               },
             ),
           ],
         );
       },
-    );
-  }
-
-  Widget _buildSettingTile(
-    BuildContext context, {
-    required String title,
-    String? subtitle,
-    Widget? trailing,
-  }) {
-    return ListTile(
-      contentPadding: EdgeInsets.zero,
-      title: Text(title),
-      subtitle: subtitle != null ? Text(subtitle) : null,
-      trailing: trailing,
     );
   }
 }

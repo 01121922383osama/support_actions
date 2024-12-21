@@ -43,7 +43,7 @@ void main() async {
     title: 'Test Notification',
     body: 'This is a test notification',
     // add this time 12/19/2024 at 5:46 pm
-    scheduledTime: DateTime(2024, 12, 19, 17, 47, 0),
+    scheduledTime: DateTime.now().add(const Duration(seconds: 3)),
   );
 
   // Initialize Supabase
