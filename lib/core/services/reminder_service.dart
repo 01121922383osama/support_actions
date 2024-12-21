@@ -73,29 +73,59 @@ class ReminderService {
     log('Notifications initialized. Permission status: ${await AwesomeNotifications().isNotificationAllowed()}');
   }
 
+  static Future<bool> isNotificationAllowed() async {
+    try {
+      if (kIsWeb) {
+        final isSupported = html.Notification.supported;
+        final currentPermission = html.Notification.permission.toString();
+
+        log('🔔 Web Notification Permission Check:'
+            '\n - Notifications Supported: $isSupported'
+            '\n - Current Permission: $currentPermission'
+            '\n - Detailed Status: ${_getWebNotificationStatus()}');
+
+        return isSupported && currentPermission == 'granted';
+      } else {
+        return await AwesomeNotifications().isNotificationAllowed();
+      }
+    } catch (e) {
+      log('❌ Error checking notification permission: $e');
+      return false;
+    }
+  }
+
   // Notification action received handler
   @pragma('vm:entry-point')
   static Future<void> onActionReceivedMethod(
       ReceivedAction receivedAction) async {
-    // Handle notification action
+    log('🔔 Notification Action Received:'
+        '\n - Title: ${receivedAction.title}'
+        '\n - Body: ${receivedAction.body}'
+        '\n - ID: ${receivedAction.id}');
   }
 
   @pragma('vm:entry-point')
   static Future<void> onDismissActionReceivedMethod(
       ReceivedAction receivedAction) async {
-    // Handle notification dismissal
+    log('🔔 Notification Dismissed:'
+        '\n - Title: ${receivedAction.title}'
+        '\n - Body: ${receivedAction.body}');
   }
 
   @pragma('vm:entry-point')
   static Future<void> onNotificationCreatedMethod(
       ReceivedNotification receivedNotification) async {
-    // Handle notification creation
+    log('🔔 Notification Created:'
+        '\n - Title: ${receivedNotification.title}'
+        '\n - Body: ${receivedNotification.body}');
   }
 
   @pragma('vm:entry-point')
   static Future<void> onNotificationDisplayedMethod(
       ReceivedNotification receivedNotification) async {
-    // Handle notification display
+    log('🔔 Notification Displayed:'
+        '\n - Title: ${receivedNotification.title}'
+        '\n - Body: ${receivedNotification.body}');
   }
 
   // Register web background service
@@ -120,6 +150,29 @@ class ReminderService {
     }
   }
 
+  static Future<bool> requestNotificationPermission() async {
+    try {
+      if (kIsWeb) {
+        log('🔔 Requesting Web Notification Permission...');
+        final permission = await html.Notification.requestPermission();
+
+        log('🔔 Web Notification Permission Result:'
+            '\n - Permission: ${permission.toString()}'
+            '\n - Detailed Status: ${_getWebNotificationStatus()}');
+
+        return permission.toString() == 'granted';
+      } else {
+        return await AwesomeNotifications()
+            .requestPermissionToSendNotifications(
+          permissions: NotificationPermission.values,
+        );
+      }
+    } catch (e) {
+      log('❌ Error requesting notification permission: $e');
+      return false;
+    }
+  }
+
   static Future<void> scheduleNotification({
     required String id,
     required String title,
@@ -127,121 +180,82 @@ class ReminderService {
     required DateTime scheduledTime,
   }) async {
     try {
+      // Adjust the scheduled time by subtracting 2 hours
+      final adjustedScheduledTime = scheduledTime.subtract(Duration(hours: 2));
+
       // Ensure service is initialized
       await _ensureInitialized();
 
-      // Normalize the scheduled time to the local timezone
-      final localScheduledTime = scheduledTime.toLocal();
-      final currentTime = DateTime.now().toLocal();
+      // Check and request notification permission if not granted
+      bool isAllowed = await isNotificationAllowed();
+      if (!isAllowed) {
+        log('🔔 Notification permission not granted. Requesting...');
+        isAllowed = await requestNotificationPermission();
+      }
 
-      log('🕒 Scheduling Time Verification:'
-          '\n - Scheduled Time (Local): $localScheduledTime'
-          '\n - Current Time (Local): $currentTime'
-          '\n - Time Difference: ${localScheduledTime.difference(currentTime)}');
-
-      // Ensure the scheduled time is in the future
-      if (localScheduledTime.isBefore(currentTime)) {
-        log('⚠️ Warning: Scheduled time is in the past. Skipping notification.');
+      if (!isAllowed) {
+        log('❌ Failed to get notification permission');
         return;
       }
 
-      // Enhanced logging
+      // Use the adjusted scheduled time
+      final localNow = DateTime.now();
+
+      log('🕒 Precise Scheduling Time Verification:'
+          '\n - Original Scheduled Time: $scheduledTime'
+          '\n - Adjusted Scheduled Time: $adjustedScheduledTime'
+          '\n - Current Time (Local): $localNow'
+          '\n - Time Difference: ${adjustedScheduledTime.difference(localNow)}');
+
+      // Ensure the adjusted scheduled time is in the future
+      if (adjustedScheduledTime.isBefore(localNow)) {
+        log('⚠️ Warning: Adjusted scheduled time is in the past. Skipping notification.');
+        return;
+      }
+
       log('🕒 Scheduling Notification Details:'
-          '\n - Platform: ${kIsWeb ? "Web" : "Mobile/Desktop"}'
           '\n - ID: $id'
           '\n - Title: $title'
           '\n - Body: $body'
-          '\n - Scheduled Time: $scheduledTime'
-          '\n - Current Time: ${DateTime.now()}'
-          '\n - Notification Allowed: ${await AwesomeNotifications().isNotificationAllowed()}');
+          '\n - Adjusted Scheduled Time: $adjustedScheduledTime'
+          '\n - Current Time (Local): $localNow');
 
       if (kIsWeb) {
-        // Web-specific notification scheduling
-        try {
-          // Check if browser supports notifications
-          if (!html.Notification.supported) {
-            log('❌ Web notifications not supported in this browser');
-            return;
-          }
-
-          final permission = await html.Notification.requestPermission();
-
-          if (permission.toString() != 'granted') {
-            log('Web Notification permissions not granted');
-          }
-
-          _scheduleWebNotification(
-            id: id,
-            title: title,
-            body: body,
-            scheduledTime: localScheduledTime,
-          );
-          log('✅ Web notification scheduled successfully');
-        } catch (e, stackTrace) {
-          log('❌ Web notification scheduling error: $e',
-              stackTrace: stackTrace);
-        }
+        await _scheduleWebNotification(
+          id: id,
+          title: title,
+          body: body,
+          scheduledTime: adjustedScheduledTime,
+        );
       } else {
-        // Mobile/Desktop notification scheduling using Awesome Notifications
-        try {
-          final tz.TZDateTime tzScheduledTime =
-              tz.TZDateTime.from(localScheduledTime, tz.local);
-
-          // Check notification permission before scheduling
-          bool isAllowed = await AwesomeNotifications().isNotificationAllowed();
-          if (!isAllowed) {
-            log('❌ Notifications not allowed. Requesting permission...');
-            await AwesomeNotifications().requestPermissionToSendNotifications(
-              permissions: NotificationPermission.values,
-            );
-            isAllowed = await AwesomeNotifications().isNotificationAllowed();
-          }
-
-          if (isAllowed) {
-            await AwesomeNotifications().createNotification(
-              content: NotificationContent(
-                id: id.hashCode,
-                channelKey: 'alerts',
-                title: title,
-                body: body,
-              ),
-              schedule: NotificationCalendar.fromDate(
-                date: tzScheduledTime,
-                allowWhileIdle: true,
-                preciseAlarm: true,
-              ),
-            );
-
-            log('✅ Mobile notification scheduled successfully for $tzScheduledTime');
-          } else {
-            log('❌ Notification permission still not granted');
-          }
-        } catch (e, stackTrace) {
-          log('❌ Mobile notification scheduling error: $e',
-              stackTrace: stackTrace);
-        }
+        await _scheduleMobileNotification(
+          id: id,
+          title: title,
+          body: body,
+          scheduledTime: adjustedScheduledTime,
+        );
       }
     } catch (e, stackTrace) {
-      log('❌ Error in scheduleNotification: $e', stackTrace: stackTrace);
+      log('❌ Notification Scheduling Error: $e',
+          error: e, stackTrace: stackTrace);
     }
   }
 
   static Future<void> startListeningNotificationEvents() async {
-    await _ensureInitialized();
+    try {
+      await _ensureInitialized();
 
-    if (kIsWeb) {
-      // Web-specific event listening (if needed)
-      log('Web notification event listener initialized');
-    } else {
-      // Configure notification events
+      // Configure notification listeners
       AwesomeNotifications().setListeners(
         onActionReceivedMethod: onActionReceivedMethod,
+        onDismissActionReceivedMethod: onDismissActionReceivedMethod,
         onNotificationCreatedMethod: onNotificationCreatedMethod,
         onNotificationDisplayedMethod: onNotificationDisplayedMethod,
-        onDismissActionReceivedMethod: onDismissActionReceivedMethod,
       );
 
-      log('Notification event listeners set up successfully');
+      log('✅ Notification event listeners configured successfully');
+    } catch (e) {
+      log('❌ Error configuring notification listeners: $e');
     }
   }
 
@@ -255,6 +269,21 @@ class ReminderService {
       log('Initialization error: $e');
       // Attempt to reinitialize if previous init failed
       await init();
+    }
+  }
+
+  static String _getWebNotificationStatus() {
+    if (!html.Notification.supported) return 'Not Supported';
+
+    switch (html.Notification.permission.toString()) {
+      case 'granted':
+        return 'Allowed ✅';
+      case 'denied':
+        return 'Permanently Blocked ❌';
+      case 'default':
+        return 'Pending User Decision ❓';
+      default:
+        return 'Unknown Status';
     }
   }
 
@@ -295,47 +324,110 @@ class ReminderService {
     }
   }
 
-  static void _scheduleWebNotification({
+  static Future<void> _scheduleMobileNotification({
     required String id,
     required String title,
     required String body,
     required DateTime scheduledTime,
-  }) {
-    // Calculate delay in milliseconds using UTC
-    final now = DateTime.now().toUtc();
-    final delay = scheduledTime.toUtc().difference(now);
+  }) async {
+    try {
+      // Check notification permission before scheduling
+      bool isAllowed = await AwesomeNotifications().isNotificationAllowed();
+      if (!isAllowed) {
+        log('❌ Notifications not allowed. Requesting permission...');
+        await AwesomeNotifications().requestPermissionToSendNotifications(
+          permissions: NotificationPermission.values,
+        );
+        isAllowed = await AwesomeNotifications().isNotificationAllowed();
+      }
 
-    log('🕒 Web Notification Scheduling Details:'
-        '\n - Delay: $delay'
-        '\n - Current Time (UTC): $now'
-        '\n - Scheduled Time (UTC): ${scheduledTime.toUtc()}');
+      if (isAllowed) {
+        final tz.TZDateTime tzScheduledTime =
+            tz.TZDateTime.from(scheduledTime, tz.local);
 
-    // Ensure delay is positive
-    if (delay.isNegative) {
-      log('❌ Scheduled time is in the past. Skipping web notification.');
-      return;
-    }
-
-    // Use Timer for precise scheduling
-    Timer(delay, () {
-      try {
-        // Create and show the notification
-        final notification = html.Notification(
-          title,
-          body: body,
-          // You can add more options like icon if needed
+        await AwesomeNotifications().createNotification(
+          content: NotificationContent(
+            id: id.hashCode,
+            channelKey: 'alerts',
+            title: title,
+            body: body,
+            wakeUpScreen: true,
+            category: NotificationCategory.Reminder,
+          ),
+          schedule: NotificationCalendar.fromDate(date: tzScheduledTime),
         );
 
-        log('✅ Web notification triggered successfully');
-
-        // Optional: Add click event handler
-        notification.onClick.listen((_) {
-          log('📣 Web notification clicked');
-          // Add any click handling logic here
-        });
-      } catch (e) {
-        log('❌ Error showing web notification: $e');
+        log('✅ Mobile notification scheduled successfully');
+      } else {
+        log('❌ Notification permission still not granted');
       }
-    });
+    } catch (e, stackTrace) {
+      log('❌ Mobile Notification Scheduling Error: $e',
+          error: e, stackTrace: stackTrace);
+    }
+  }
+
+  static Future<void> _scheduleWebNotification({
+    required String id,
+    required String title,
+    required String body,
+    required DateTime scheduledTime,
+  }) async {
+    try {
+      // Web-specific notification scheduling
+      if (!html.Notification.supported) {
+        log('❌ Web notifications not supported in this browser');
+        return;
+      }
+
+      final permission = await html.Notification.requestPermission();
+
+      if (permission.toString() != 'granted') {
+        log('❌ Web Notification permissions not granted');
+        return;
+      }
+
+      // Calculate delay in milliseconds using local time
+      final now = DateTime.now();
+      final delay = scheduledTime.difference(now).inMilliseconds;
+
+      log('🕒 Web Notification Scheduling Details:'
+          '\n - Delay: $delay ms'
+          '\n - Current Time (Local): $now'
+          '\n - Scheduled Time (Local): $scheduledTime');
+
+      // Ensure delay is positive
+      if (delay > 0) {
+        // Use Timer for precise scheduling
+        Timer(Duration(milliseconds: delay), () {
+          try {
+            // Create and show the notification
+            final notification = html.Notification(
+              title,
+              body: body,
+              // Optional: Add icon if needed
+              // icon: 'path/to/icon.png'
+            );
+
+            log('✅ Web notification triggered successfully');
+
+            // Optional: Add click event handler
+            notification.onClick.listen((_) {
+              log('📣 Web notification clicked');
+              // Add any click handling logic here
+            });
+          } catch (e) {
+            log('❌ Error showing web notification: $e');
+          }
+        });
+
+        log('✅ Web notification scheduled successfully');
+      } else {
+        log('⚠️ Web notification time is in the past');
+      }
+    } catch (e, stackTrace) {
+      log('❌ Web Notification Scheduling Error: $e',
+          error: e, stackTrace: stackTrace);
+    }
   }
 }

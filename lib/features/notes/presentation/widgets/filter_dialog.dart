@@ -113,7 +113,8 @@ class _FilterDialogState extends State<FilterDialog> {
                   showCheckmark: false,
                   avatar: isSelected
                       ? Icon(Icons.check,
-                          size: 18, color: Theme.of(context).colorScheme.primary)
+                          size: 18,
+                          color: Theme.of(context).colorScheme.primary)
                       : null,
                 ).animate(target: isSelected ? 1 : 0).scale();
               }).toList(),
@@ -199,8 +200,8 @@ class _FilterDialogState extends State<FilterDialog> {
                       }
                     },
                     icon: const Icon(Icons.calendar_today),
-                    label: Text(fromDate?.toString().split(' ')[0] ??
-                        'Start Date'),
+                    label: Text(
+                        fromDate?.toString().split(' ')[0] ?? 'Start Date'),
                   ),
                 ),
                 const SizedBox(width: 8),
@@ -220,8 +221,7 @@ class _FilterDialogState extends State<FilterDialog> {
                       }
                     },
                     icon: const Icon(Icons.calendar_today),
-                    label: Text(
-                        toDate?.toString().split(' ')[0] ?? 'End Date'),
+                    label: Text(toDate?.toString().split(' ')[0] ?? 'End Date'),
                   ),
                 ),
               ],

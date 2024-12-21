@@ -29,7 +29,7 @@ class SettingsPage extends StatelessWidget {
                 title: 'Dynamic Colors',
                 subtitle: 'Use system colors for theming',
                 trailing: Switch(
-                  value: true, // TODO: Implement dynamic colors toggle
+                  value: true,
                   onChanged: (value) {
                     // TODO: Implement dynamic colors toggle
                   },

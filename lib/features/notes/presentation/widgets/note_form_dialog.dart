@@ -29,32 +29,6 @@ class _NoteFormDialogState extends State<NoteFormDialog> {
   bool _isCompleted = false;
 
   @override
-  void initState() {
-    super.initState();
-    _teacherNameController =
-        TextEditingController(text: widget.note?.teacherName);
-    _studentNameController =
-        TextEditingController(text: widget.note?.studentName);
-    _descriptionController =
-        TextEditingController(text: widget.note?.description);
-    _notesController = TextEditingController(text: widget.note?.notes);
-    _selectedCategory = widget.note?.category ?? 'Action';
-    _selectedDate = widget.note?.createdAt ?? DateTime.now();
-    _hasReminder = widget.note?.reminderTime != null;
-    _reminderTime = widget.note?.reminderTime;
-    _isCompleted = widget.note?.isCompleted ?? false;
-  }
-
-  @override
-  void dispose() {
-    _teacherNameController.dispose();
-    _studentNameController.dispose();
-    _descriptionController.dispose();
-    _notesController.dispose();
-    super.dispose();
-  }
-
-  @override
   Widget build(BuildContext context) {
     return Dialog(
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
@@ -76,22 +50,25 @@ class _NoteFormDialogState extends State<NoteFormDialog> {
                 _buildInputField(
                   controller: _teacherNameController,
                   label: 'Teacher Name',
-                  validator: (value) =>
-                      value?.isEmpty ?? true ? 'Please enter teacher name' : null,
+                  validator: (value) => value?.isEmpty ?? true
+                      ? 'Please enter teacher name'
+                      : null,
                 ).animate().fadeIn(delay: 100.ms),
                 const SizedBox(height: 16),
                 _buildInputField(
                   controller: _studentNameController,
                   label: 'Student Name',
-                  validator: (value) =>
-                      value?.isEmpty ?? true ? 'Please enter student name' : null,
+                  validator: (value) => value?.isEmpty ?? true
+                      ? 'Please enter student name'
+                      : null,
                 ).animate().fadeIn(delay: 200.ms),
                 const SizedBox(height: 16),
                 _buildInputField(
                   controller: _descriptionController,
                   label: 'Description',
-                  validator: (value) =>
-                      value?.isEmpty ?? true ? 'Please enter description' : null,
+                  validator: (value) => value?.isEmpty ?? true
+                      ? 'Please enter description'
+                      : null,
                 ).animate().fadeIn(delay: 300.ms),
                 const SizedBox(height: 16),
                 _buildCategorySelector().animate().fadeIn(delay: 400.ms),
@@ -130,42 +107,30 @@ class _NoteFormDialogState extends State<NoteFormDialog> {
     ).animate().scale(duration: 300.ms, curve: Curves.easeOut);
   }
 
-  void _saveNote() {
-    if (_formKey.currentState!.validate()) {
-      final note = NoteModel(
-        id: widget.note?.id ?? const Uuid().v4(),
-        teacherName: _teacherNameController.text.trim(),
-        studentName: _studentNameController.text.trim(),
-        description: _descriptionController.text.trim(),
-        category: _selectedCategory,
-        createdAt: _selectedDate,
-        reminderTime: _hasReminder ? _reminderTime : null,
-        notes: _notesController.text.trim(),
-        isCompleted: _isCompleted,
-      );
-
-      if (widget.note == null) {
-        context.read<NotesBloc>().add(CreateNote(note));
-      } else {
-        context.read<NotesBloc>().add(UpdateNote(note));
-      }
-
-      Navigator.pop(context);
-    }
+  @override
+  void dispose() {
+    _teacherNameController.dispose();
+    _studentNameController.dispose();
+    _descriptionController.dispose();
+    _notesController.dispose();
+    super.dispose();
   }
 
-  Widget _buildInputField({
-    required TextEditingController controller,
-    required String label,
-    int? maxLines,
-    String? Function(String?)? validator,
-  }) {
-    return TextFormField(
-      controller: controller,
-      decoration: InputDecoration(labelText: label),
-      maxLines: maxLines,
-      validator: validator,
-    );
+  @override
+  void initState() {
+    super.initState();
+    _teacherNameController =
+        TextEditingController(text: widget.note?.teacherName);
+    _studentNameController =
+        TextEditingController(text: widget.note?.studentName);
+    _descriptionController =
+        TextEditingController(text: widget.note?.description);
+    _notesController = TextEditingController(text: widget.note?.notes);
+    _selectedCategory = widget.note?.category ?? 'Action';
+    _selectedDate = widget.note?.createdAt ?? DateTime.now();
+    _hasReminder = widget.note?.reminderTime != null;
+    _reminderTime = widget.note?.reminderTime;
+    _isCompleted = widget.note?.isCompleted ?? false;
   }
 
   Widget _buildCategorySelector() {
@@ -193,6 +158,18 @@ class _NoteFormDialogState extends State<NoteFormDialog> {
     );
   }
 
+  Widget _buildCompletionCheckbox() {
+    return CheckboxListTile(
+      title: const Text('Mark as Completed'),
+      value: _isCompleted,
+      onChanged: (value) {
+        setState(() {
+          _isCompleted = value ?? false;
+        });
+      },
+    );
+  }
+
   Widget _buildDateAndTimeSection() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -209,8 +186,10 @@ class _NoteFormDialogState extends State<NoteFormDialog> {
                 onPressed: () async {
                   final date = await showDatePicker(
                     context: context,
-                    initialDate: _selectedDate,
-                    firstDate: DateTime.now(),
+                    initialDate: _selectedDate.isBefore(DateTime.now())
+                        ? DateTime.now()
+                        : _selectedDate,
+                    firstDate: DateTime(2020),
                     lastDate: DateTime.now().add(const Duration(days: 365)),
                   );
                   if (date != null) {
@@ -229,6 +208,20 @@ class _NoteFormDialogState extends State<NoteFormDialog> {
     );
   }
 
+  Widget _buildInputField({
+    required TextEditingController controller,
+    required String label,
+    int? maxLines,
+    String? Function(String?)? validator,
+  }) {
+    return TextFormField(
+      controller: controller,
+      decoration: InputDecoration(labelText: label),
+      maxLines: maxLines,
+      validator: validator,
+    );
+  }
+
   Widget _buildReminderSection() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -241,7 +234,8 @@ class _NoteFormDialogState extends State<NoteFormDialog> {
                 setState(() {
                   _hasReminder = value;
                   if (value && _reminderTime == null) {
-                    _reminderTime = DateTime.now().add(const Duration(hours: 1));
+                    _reminderTime =
+                        DateTime.now().add(const Duration(hours: 1));
                   }
                 });
               },
@@ -259,7 +253,8 @@ class _NoteFormDialogState extends State<NoteFormDialog> {
             onPressed: () async {
               final time = await showTimePicker(
                 context: context,
-                initialTime: TimeOfDay.fromDateTime(_reminderTime ?? DateTime.now()),
+                initialTime:
+                    TimeOfDay.fromDateTime(_reminderTime ?? DateTime.now()),
               );
               if (time != null) {
                 setState(() {
@@ -284,15 +279,27 @@ class _NoteFormDialogState extends State<NoteFormDialog> {
     );
   }
 
-  Widget _buildCompletionCheckbox() {
-    return CheckboxListTile(
-      title: const Text('Mark as Completed'),
-      value: _isCompleted,
-      onChanged: (value) {
-        setState(() {
-          _isCompleted = value ?? false;
-        });
-      },
-    );
+  void _saveNote() {
+    if (_formKey.currentState!.validate()) {
+      final note = NoteModel(
+        id: widget.note?.id ?? const Uuid().v4(),
+        teacherName: _teacherNameController.text.trim(),
+        studentName: _studentNameController.text.trim(),
+        description: _descriptionController.text.trim(),
+        category: _selectedCategory,
+        createdAt: _selectedDate,
+        reminderTime: _hasReminder ? _reminderTime : null,
+        notes: _notesController.text.trim(),
+        isCompleted: _isCompleted,
+      );
+
+      if (widget.note == null) {
+        context.read<NotesBloc>().add(CreateNote(note));
+      } else {
+        context.read<NotesBloc>().add(UpdateNote(note));
+      }
+
+      Navigator.pop(context);
+    }
   }
 }

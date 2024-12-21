@@ -47,20 +47,9 @@ class NotesRepositoryImpl implements NotesRepository {
       // Remove unnecessary null checks
       final createdNote = NoteModel.fromJson(response);
 
+      // Use new helper method for notification scheduling
       if (createdNote.reminderTime != null) {
-        try {
-          await ReminderService.scheduleNotification(
-            id: createdNote.id,
-            title:
-                'Note Reminder: ${createdNote.teacherName} ${createdNote.studentName}',
-            body: createdNote.description,
-            scheduledTime: createdNote.reminderTime!,
-          );
-          log('Notification scheduled successfully for note: ${createdNote.id}');
-        } catch (e) {
-          log('CreateNote Error (scheduling notification): $e',
-              error: e, stackTrace: StackTrace.current);
-        }
+        await _handleNotificationScheduling(createdNote);
       }
 
       await _notesBox.put(createdNote.id, createdNote);
@@ -358,13 +347,36 @@ class NotesRepositoryImpl implements NotesRepository {
     }
   }
 
+  // Optional: Method to sync local Hive cache with Supabase stream
+  @override
+  Future<void> syncNotesWithLocalCache() async {
+    final user = _supabaseClient.auth.currentUser;
+    if (user == null) return;
+
+    try {
+      // Fetch all notes from Supabase
+      final response =
+          await _supabaseClient.from('notes').select().eq('user_id', user.id);
+
+      final notes = response.map((json) => NoteModel.fromJson(json)).toList();
+
+      // Clear and update local Hive cache
+      await _notesBox.clear();
+      for (var note in notes) {
+        await _notesBox.put(note.id, note);
+      }
+
+      log('🔄 Synced ${notes.length} notes to local cache');
+    } catch (e) {
+      log('❌ Error syncing notes to local cache: $e');
+    }
+  }
+
   @override
   Future<Either<Failure, NoteModel>> updateNote(NoteModel updatedNote) async {
     try {
-      // Log the note being updated
       log('Updating note: ${updatedNote.id}, Reminder Time: ${updatedNote.reminderTime}');
 
-      // Perform Supabase update
       final response = await _supabaseClient
           .from('notes')
           .update(updatedNote.toJson())
@@ -374,32 +386,212 @@ class NotesRepositoryImpl implements NotesRepository {
 
       final updatedNoteFromResponse = NoteModel.fromJson(response);
 
-      // Handle reminder scheduling
+      // Use new helper method for notification scheduling
       if (updatedNoteFromResponse.reminderTime != null) {
-        try {
-          log('Attempting to schedule notification for note: ${updatedNoteFromResponse.id}');
-          await ReminderService.scheduleNotification(
-            id: updatedNoteFromResponse.id,
-            title: 'Note Reminder',
-            body: updatedNoteFromResponse.description ?? 'You have a reminder',
-            scheduledTime: updatedNoteFromResponse.reminderTime!,
-          );
-          log('Notification scheduled successfully for note: ${updatedNoteFromResponse.id}');
-        } catch (scheduleError) {
-          log('Error scheduling notification: $scheduleError');
-          // Optionally, you might want to handle this error more specifically
-        }
-      } else {
-        log('No reminder time set for note: ${updatedNoteFromResponse.id}');
+        await _handleNotificationScheduling(updatedNoteFromResponse);
       }
 
-      // Update local Hive storage
       await _notesBox.put(updatedNoteFromResponse.id, updatedNoteFromResponse);
 
       return Right(updatedNoteFromResponse);
     } catch (e) {
       log('UpdateNote Error: $e');
       return Left(ServerFailure('Failed to update note: $e'));
+    }
+  }
+
+  // Stream method to fetch filtered notes
+  @override
+  Stream<List<NoteModel>> watchFilteredNotes({
+    String? teacherName,
+    String? studentName,
+    DateTime? startDate,
+    DateTime? endDate,
+  }) {
+    final user = _supabaseClient.auth.currentUser;
+    if (user == null) {
+      log('❌ Cannot fetch filtered notes: User not authenticated');
+      return Stream.value([]);
+    }
+
+    // Start with base query
+    var query = _supabaseClient
+        .from('notes')
+        .stream(primaryKey: ['id']).eq('user_id', user.id);
+
+    // Apply optional filters
+    if (teacherName != null) {
+      query = query.eq('teacher_name', teacherName);
+    }
+
+    if (studentName != null) {
+      query = query.eq('student_name', studentName);
+    }
+
+    if (startDate != null) {
+      query = query.gte('created_at', startDate.toIso8601String());
+    }
+
+    if (endDate != null) {
+      query = query.lte('created_at', endDate.toIso8601String());
+    }
+
+    return query.map((event) {
+      try {
+        final notes = event.map((json) => NoteModel.fromJson(json)).toList();
+
+        log('🔍 Filtered notes: ${notes.length} '
+            '(Teacher: $teacherName, Student: $studentName)');
+
+        return notes;
+      } catch (e) {
+        log('❌ Error converting filtered notes stream: $e');
+        return [];
+      }
+    });
+  }
+
+  // Stream method to fetch all notes for the current user
+  @override
+  Stream<List<NoteModel>> watchNotes() {
+    final user = _supabaseClient.auth.currentUser;
+    if (user == null) {
+      log('❌ Cannot fetch notes: User not authenticated');
+      return Stream.value([]);
+    }
+
+    return _supabaseClient
+        .from('notes')
+        .stream(primaryKey: ['id'])
+        .eq('user_id', user.id)
+        .map((event) {
+          try {
+            // Convert Supabase response to NoteModel list
+            final notes =
+                event.map((json) => NoteModel.fromJson(json)).toList();
+
+            // Optional: Sort notes by creation or reminder time
+            notes.sort((a, b) {
+              if (a.reminderTime != null && b.reminderTime != null) {
+                return a.reminderTime!.compareTo(b.reminderTime!);
+              }
+              return 0;
+            });
+
+            log('📝 Fetched ${notes.length} notes for user ${user.id}');
+            return notes;
+          } catch (e) {
+            log('❌ Error converting notes stream: $e');
+            return [];
+          }
+        });
+  }
+
+  // Stream method to fetch notes with upcoming reminders
+  @override
+  Stream<List<NoteModel>> watchUpcomingReminders() {
+    final user = _supabaseClient.auth.currentUser;
+    if (user == null) {
+      log('❌ Cannot fetch upcoming reminders: User not authenticated');
+      return Stream.value([]);
+    }
+
+    final now = DateTime.now();
+
+    return _supabaseClient
+        .from('notes')
+        .stream(primaryKey: ['id'])
+        .eq('user_id', user.id)
+        .gt('reminder_time', now.toIso8601String()) // Greater than current time
+        .map((event) {
+          try {
+            final notes =
+                event.map((json) => NoteModel.fromJson(json)).toList();
+
+            // Sort by closest reminder time
+            notes.sort((a, b) => a.reminderTime!.compareTo(b.reminderTime!));
+
+            log('⏰ Upcoming reminders: ${notes.length}');
+            return notes;
+          } catch (e) {
+            log('❌ Error converting upcoming reminders stream: $e');
+            return [];
+          }
+        });
+  }
+
+  // Helper method to handle notification scheduling with enhanced error handling
+  Future<void> _handleNotificationScheduling(NoteModel note) async {
+    if (note.reminderTime == null) {
+      log('ℹ️ No reminder time set for note: ${note.id}');
+      return;
+    }
+
+    try {
+      // Validate reminder time
+      final now = DateTime.now();
+      final reminderTime = note.reminderTime!;
+
+      log('🕒 Reminder Scheduling Validation:'
+          '\n - Note ID: ${note.id}'
+          '\n - Current Time: $now'
+          '\n - Reminder Time: $reminderTime'
+          '\n - Time Difference: ${reminderTime.difference(now)}');
+
+      // Check if reminder is too far in the future (e.g., more than 1 year)
+      final maxReminderDuration = now.add(const Duration(days: 365));
+      if (reminderTime.isAfter(maxReminderDuration)) {
+        log('⚠️ Reminder time is too far in the future. Skipping scheduling.');
+        return;
+      }
+
+      // Prevent scheduling past reminders
+      if (reminderTime.isBefore(now)) {
+        log('⚠️ Reminder time is in the past. Skipping scheduling.');
+        return;
+      }
+
+      // Generate a more descriptive notification title and body
+      final title = 'Note Reminder: ${note.teacherName} ${note.studentName}';
+      final body = note.description ?? 'No description provided';
+
+      // Attempt to schedule notification
+      await ReminderService.scheduleNotification(
+        id: note.id,
+        title: title,
+        body: body,
+        scheduledTime: reminderTime,
+      );
+
+      log('✅ Notification scheduled successfully:'
+          '\n - Note ID: ${note.id}'
+          '\n - Scheduled Time: $reminderTime');
+    } catch (e, stackTrace) {
+      // Comprehensive error logging
+      log('❌ Notification Scheduling Error:', error: e, stackTrace: stackTrace);
+
+      // Optional: You could implement a retry mechanism or
+      // send an error report to a logging service
+      await _logSchedulingError(note, e);
+    }
+  }
+
+  // Log scheduling errors for potential later investigation
+  Future<void> _logSchedulingError(NoteModel note, Object error) async {
+    try {
+      // In a real-world scenario, you might want to:
+      // 1. Send error to a logging service
+      // 2. Store in local error log
+      // 3. Notify user through a separate mechanism
+      log('📝 Logging Notification Scheduling Error:'
+          '\n - Note ID: ${note.id}'
+          '\n - Teacher: ${note.teacherName}'
+          '\n - Student: ${note.studentName}'
+          '\n - Reminder Time: ${note.reminderTime}'
+          '\n - Error: $error');
+    } catch (logError) {
+      // Fallback logging in case of any issues with error logging
+      log('❌ Error logging scheduling error: $logError');
     }
   }
 }
